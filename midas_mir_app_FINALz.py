@@ -255,10 +255,7 @@ section[data-testid="stSidebar"] {
 [data-testid="stMultiSelect"] {
     border-radius: 12px;
 }
-[data-baseweb="tag"] {
-    border-radius: 20px !important;
-    font-weight: 500 !important;
-}
+
 
 /* Buttons */
 .stButton > button {
@@ -328,18 +325,41 @@ except ImportError:
 def ensure_models():
     models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models')
     registry   = os.path.join(models_dir, 'mir_model_registry.json')
-    if os.path.exists(registry):
+
+    # IMPORTANT: don't just check for the registry.json — that small file is
+    # often committed to git directly, so its presence doesn't tell us
+    # whether the (much larger, gitignored) .pkl model files were actually
+    # downloaded from Drive. Check for at least one real model file instead.
+    existing_pkls = []
+    if os.path.isdir(models_dir):
+        existing_pkls = [f for f in os.listdir(models_dir) if f.endswith('.pkl')]
+
+    if os.path.exists(registry) and len(existing_pkls) > 0:
         return True
+
     try:
         import gdown
         FOLDER_ID = '1t7E867ThQc1vpSClKLoBSwzW-tzn0oyk'
         os.makedirs(models_dir, exist_ok=True)
         gdown.download_folder(id=FOLDER_ID, output=models_dir,
                               quiet=False, use_cookies=False)
-        return True
     except Exception as e:
         st.error(f'Could not download models: {e}')
         return False
+
+    # Verify the download actually produced .pkl files — gdown can "succeed"
+    # (no exception) while silently skipping files due to Drive rate limits
+    # or permission issues, leaving the folder empty or incomplete.
+    final_pkls = [f for f in os.listdir(models_dir) if f.endswith('.pkl')] if os.path.isdir(models_dir) else []
+    if not final_pkls:
+        st.error(
+            "Model download from Google Drive completed but no .pkl files were found. "
+            "This usually means Google Drive rate-limited the download or the folder "
+            "permissions changed. Check that the Drive folder is still shared as "
+            "'Anyone with the link — Viewer' and try again."
+        )
+        return False
+    return True
 
 ensure_models()
 
@@ -483,7 +503,8 @@ def load_all_models():
         entry = {'info': info, 'type': info.get('model_type', 'traditional')}
         try:
             entry['model'] = joblib.load(mp)
-        except Exception:
+        except Exception as e:
+            st.warning(f"Could not load model for '{prop}' from {mp}: {type(e).__name__}: {e}")
             continue
 
         pp2 = rp(info, ['pipeline_path', 'pipeline_file'], f'mir_{pl}_pipeline.pkl')
