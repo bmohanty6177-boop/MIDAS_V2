@@ -93,14 +93,27 @@ h3 {
 }
 
 /* ── Property tags (multiselect) ─────────────────────────────────── */
-[data-baseweb="tag"] {
+/* ── Multiselect tags — force navy blue ────── */
+[data-baseweb="tag"],
+span[data-baseweb="tag"],
+div[data-baseweb="tag"] {
+    background: #0f1f4a !important;
+    background-color: #0f1f4a !important;
+    border-color: #0f1f4a !important;
+    color: #ffffff !important;
     border-radius: 30px !important;
     font-weight: 600 !important;
     font-size: 12px !important;
-    background: linear-gradient(135deg, #0f1f4a, #3a5fd9) !important;
-    color: white !important;
-    box-shadow: 0 2px 6px rgba(15,31,74,0.25) !important;
     padding: 2px 10px !important;
+}
+[data-baseweb="tag"] span,
+[data-baseweb="tag"] svg {
+    color: #ffffff !important;
+    fill: #ffffff !important;
+}
+.stMultiSelect [data-baseweb="tag"] {
+    background-color: #0f1f4a !important;
+    color: #ffffff !important;
 }
 
 /* ── Results table ───────────────────────────────────────────────── */
@@ -109,6 +122,21 @@ h3 {
     overflow: hidden !important;
     border: none !important;
     box-shadow: 0 4px 24px rgba(15,31,74,0.12) !important;
+}
+/* Table header cells — green color */
+[data-testid="stDataFrame"] th,
+[data-testid="stDataFrame"] [role="columnheader"] {
+    color: #0a2200 !important;
+    font-weight: 700 !important;
+    font-size: 13px !important;
+    background-color: #f0faf0 !important;
+}
+/* Table data cells — bold dark */
+[data-testid="stDataFrame"] td,
+[data-testid="stDataFrame"] [role="gridcell"] {
+    color: #0a0a0a !important;
+    font-weight: 600 !important;
+    font-size: 13px !important;
 }
 
 /* ── Metric containers ───────────────────────────────────────────── */
@@ -210,7 +238,7 @@ ICRAF_INFO = """**World Agroforestry (ICRAF)** — Centre of science and develop
 
 
 st.set_page_config(
-    page_title="MIDAS MIR — IISS Bhopal",
+    page_title="MIDAS",
     page_icon="🌱",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -758,9 +786,9 @@ def render_header():
         bg_css = f"background-image:url('data:image/png;base64,{b64}');background-size:cover;background-position:center;"
 
     st.markdown(f"""
-    <div style='{bg_css}border-radius:20px;padding:36px 24px 28px;
+    <div style='{bg_css}border-radius:20px;padding:20px 24px 16px;
                 margin-bottom:10px;position:relative;overflow:hidden;
-                box-shadow:0 8px 32px rgba(20,80,10,0.25);'>
+                box-shadow:0 4px 20px rgba(8,15,50,0.30);'>
       <div style='position:absolute;inset:0;
                   background:linear-gradient(135deg,rgba(8,15,50,0.75),rgba(20,40,120,0.60));
                   border-radius:20px;'></div>
@@ -928,6 +956,27 @@ def render_grouped_charts(df_results, props_predicted):
 # ══════════════════════════════════════════════════════════════════════════
 
 def main():
+    # Inject JS to capture user local time into session state
+    if 'user_tz_offset' not in st.session_state:
+        st.session_state['user_tz_offset'] = 0
+    st.components.v1.html("""
+    <script>
+    const offset = -new Date().getTimezoneOffset();
+    const key = 'user_tz_offset';
+    window.parent.postMessage({type:'streamlit:setComponentValue', value: offset}, '*');
+    </script>
+    """, height=0)
+
+    import pytz
+    from datetime import timezone, timedelta
+    def _local_now():
+        try:
+            off = st.session_state.get('user_tz_offset', 330)  # default IST
+            tz  = timezone(timedelta(minutes=int(off)))
+            return datetime.datetime.now(tz).strftime('%d-%b %H:%M')
+        except Exception:
+            return datetime.datetime.now().strftime('%d-%b %H:%M')
+
     render_header()
     st.markdown("---")
 
@@ -993,6 +1042,9 @@ def main():
     # ── Convert OPUS ───────────────────────────────────────────────────
     cache_key = tuple(sorted(f.name for f in uploaded))
     if st.session_state.get('upload_key') != cache_key:
+        # New files — clear old predictions immediately
+        st.session_state['df_results'] = None
+        st.session_state.pop('pdf_html', None)
         with st.spinner("Converting OPUS files..."):
             df_spec = convert_uploaded_files(uploaded)
             st.session_state['df_spec']    = df_spec
@@ -1177,7 +1229,7 @@ def main():
                     st.session_state['pdf_html'] = None
                     st.warning("Run the model first before generating PDF.")
                 else:
-                    _now = datetime.datetime.now().strftime('%d-%b-%Y %H:%M')
+                    _now = datetime.datetime.now(datetime.timezone(datetime.timedelta(minutes=int(st.session_state.get('user_tz_offset',330))))).strftime('%d-%b-%Y %H:%M')
                     _nc  = [c for c in _df.columns
                             if c not in ('ID','Outlier','Domain_distance')]
                     _h = f"""<!DOCTYPE html><html><head><meta charset='UTF-8'>
@@ -1228,7 +1280,7 @@ tr:nth-child(even) td{{background:#f0faea}}
         if 'batch_history' not in st.session_state:
             st.session_state['batch_history'] = []
         st.session_state['batch_history'].append({
-            'ts': datetime.datetime.now().strftime('%d-%b %H:%M'),
+            'ts': _local_now(),
             'n': n_samples, 'df': df_results.copy()
         })
         if len(st.session_state['batch_history']) > 1:
@@ -1257,12 +1309,12 @@ tr:nth-child(even) td{{background:#f0faea}}
                 if _col not in ('ID', 'Outlier', 'Domain_distance'):
                     try:
                         _df_display[_col] = _df_display[_col].apply(
-                            lambda x: f'{float(x):.3f}' if pd.notna(x) else '—'
+                            lambda x: (lambda v: v if '.' not in v else v.rstrip('0').rstrip('.') or '0')(f'{float(x):.3f}') if pd.notna(x) else '—'
                         )
                     except Exception:
                         pass
             _df_display['Domain_distance'] = _df_display['Domain_distance'].apply(
-                lambda x: f'{float(x):.3f}' if pd.notna(x) else '—'
+                lambda x: (lambda v: v if '.' not in v else v.rstrip('0').rstrip('.') or '0')(f'{float(x):.3f}') if pd.notna(x) else '—'
             ) if 'Domain_distance' in _df_display.columns else _df_display.get('Domain_distance', '')
             def _hl(row):
                 if row.get('Outlier', False):
@@ -1334,7 +1386,7 @@ tr:nth-child(even) td{{background:#f0faea}}
                     from reportlab.lib import colors
                     from reportlab.lib.units import cm
 
-                    _now = datetime.datetime.now().strftime('%d-%b-%Y %H:%M')
+                    _now = datetime.datetime.now(datetime.timezone(datetime.timedelta(minutes=int(st.session_state.get('user_tz_offset',330))))).strftime('%d-%b-%Y %H:%M')
                     _nc  = [c for c in _df.columns
                             if c not in ('ID','Outlier','Domain_distance')]
 
@@ -1475,7 +1527,7 @@ tr:nth-child(even) td{{background:#f0faea}}
                 st.session_state['batch_history'] = []
             if run_btn or not st.session_state['batch_history'] or                st.session_state['batch_history'][-1]['df'].shape != _df.shape:
                 st.session_state['batch_history'].append({
-                    'ts': datetime.datetime.now().strftime('%d-%b %H:%M'),
+                    'ts': _local_now(),
                     'n': len(_df), 'df': _df.copy()
                 })
             if len(st.session_state['batch_history']) > 1:
